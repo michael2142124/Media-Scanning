@@ -10,9 +10,14 @@ def home():
 
 @app.route("/scrape")
 def scrape():
-    main(50)  # Adjust number of articles here if needed
+    try:
+        main(50)  # Scrape 50 articles
+    except Exception as e:
+        return jsonify({"error": f"Scraper failed: {str(e)}"}), 500
+
     if not os.path.exists("crime_data_final.xlsx"):
-        return jsonify({"error": "No data found"}), 404
+        return jsonify({"error": "No data file generated."}), 404
+
     return jsonify({
         "status": "✅ Scraping complete",
         "file": "crime_data_final.xlsx",
@@ -24,7 +29,11 @@ def download():
     path = "crime_data_final.xlsx"
     if not os.path.exists(path):
         return jsonify({"error": "No file found. Run /scrape first."}), 404
-    return send_file(path, as_attachment=True)
+    return send_file(
+        path,
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
