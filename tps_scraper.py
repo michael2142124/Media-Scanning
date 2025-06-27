@@ -20,7 +20,7 @@ from openpyxl.utils import get_column_letter
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+
 
 print("✅ Chrome path:", shutil.which("google-chrome"))
 print("✅ ChromeDriver path:", shutil.which("chromedriver"))
