@@ -1,6 +1,6 @@
 flask
 selenium
-chromedriver-binary==138.0.0.0
+webdriver-manager
 pandas
 openpyxl
 beautifulsoup4
