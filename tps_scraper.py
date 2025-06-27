@@ -48,15 +48,17 @@ SUSPECT_PATTERN = re.compile(
 # ──────────────────────────────────────
 def start_driver():
     options = Options()
+    options.binary_location = "/usr/bin/google-chrome"
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--window-size=1920,1080")
-    options.binary_location = "/usr/bin/google-chrome"
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
 
+    # Use system-installed chromedriver
+    service = Service("/usr/bin/chromedriver")
+
+    return webdriver.Chrome(service=service, options=options)
 # ──────────────────────────────────────
 # Get recent article links
 # ──────────────────────────────────────
