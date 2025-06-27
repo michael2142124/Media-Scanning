@@ -3,3 +3,4 @@ selenium
 beautifulsoup4
 pandas
 openpyxl
+chromedriver-autoinstaller
