@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
 apt-get update
-apt-get install -y wget curl gnupg2 apt-transport-https unzip
 
-# Download and install Google Chrome
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-apt install -y ./google-chrome-stable_current_amd64.deb
+# Install Chromium and matching ChromeDriver
+apt-get install -y chromium-browser chromium-chromedriver
 
-# Move Chrome binary to standard location
-ln -s /usr/bin/google-chrome-stable /usr/bin/google-chrome
+# Symlink to standard paths (so Selenium can find them)
+ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+ln -sf /usr/lib/chromium-browser/chromedriver /usr/bin/chromedriver
