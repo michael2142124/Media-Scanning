@@ -1,223 +1,179 @@
 """
 Toronto Police Service – Crime-focused news-release scraper
-‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
- • Headless-Chrome via Selenium (bypasses 403 / JS)
- • Scans N recent releases (default 20)
- • Filters articles that mention BOTH:
-      – any crime keyword
-      – an age pattern (“22-year-old”, “22 year old”)
- • Extracts Name • Age • Crime from narrative text
- • Saves results to crime_data_final.xlsx (Excel-ready)
+
+ • Headless Chrome via Selenium
+ • Scans recent news releases (default: 20)
+ • Filters for articles with:
+     – crime keywords
+     – age patterns (e.g. “22-year-old”)
+ • Extracts Name • Age • Crime
+ • Outputs Excel: crime_data_final.xlsx
 """
 
 import os
 import re
 import time
 import pandas as pd
-import openpyxl
-import chromedriver_autoinstaller
+from bs4 import BeautifulSoup
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from bs4 import BeautifulSoup
-from openpyxl.utils import get_column_letter
-from openpyxl import load_workbook
-
-BASE = "https://www.tps.ca"
+import chromedriver_binary  # Ensures chromedriver is on PATH
 
 # ──────────────────────────────────────
-# 1. Crime keyword list
+# Configuration
 # ──────────────────────────────────────
+BASE_URL = "https://www.tps.ca"
+
 CRIME_KEYWORDS = [
-    # violent
-    "murder", "attempted murder", "homicide", "manslaughter", "assault",
-    "aggravated assault", "assault with a weapon", "assault causing bodily harm",
-    "uttering threats", "forcible confinement", "criminal negligence causing death",
-    "attempted strangulation",
-    # firearms / weapons
-    "firearm", "weapon", "handgun", "rifle", "gun", "shotgun", "discharge firearm",
-    "possess loaded firearm", "carry concealed weapon", "unauthorized possession",
-    "use of a firearm in crime",
-    # property
-    "robbery", "break and enter", "burglary", "theft", "auto theft",
-    "possession of stolen property", "arson", "mischief under", "mischief over",
-    "vandalism", "trespassing", "tampering",
-    # drugs
-    "trafficking", "possession for the purpose", "controlled substance", "cocaine",
-    "heroin", "fentanyl", "methamphetamine", "marijuana", "illicit drugs", "drug lab",
-    # driving / dui
-    "dui", "impaired driving", "driving under the influence", "over 80",
-    "refuse breath sample", "blood alcohol concentration", "drug-impaired driving",
-    "operating while impaired", "dangerous driving", "fail to remain", "evading police",
-    "reckless driving", "stunt driving", "high-speed pursuit", "police chase",
-    "criminal negligence in operation of a vehicle",
-    # sexual
-    "sexual assault", "sexual interference", "invitation to sexual touching",
-    "child luring", "indecent exposure", "pornography", "voyeurism", "internet luring",
-    # organized / other
-    "gang-related", "hate crime", "human trafficking", "extortion", "intimidation",
-    "criminal organization", "fraud", "financial crime",
-    # procedural
-    "breach of probation", "fail to comply", "obstruct police", "resist arrest",
-    "escape lawful custody", "perjury", "public mischief", "impersonation of police",
-    # narrative helpers
-    "charged with", "arrested for", "suspected of", "wanted for", "under investigation for"
+    "murder", "homicide", "manslaughter", "assault", "weapon", "firearm",
+    "gun", "robbery", "break and enter", "trafficking", "sexual assault",
+    "dui", "impaired driving", "gang", "fraud", "human trafficking",
+    "hate crime", "child luring", "pornography", "dangerous driving",
+    "stunt driving", "public mischief", "wanted for", "arrested for",
+    "charged with", "under investigation"
 ]
 CRIME_SET = {kw.lower() for kw in CRIME_KEYWORDS}
 
+SUSPECT_PATTERN = re.compile(
+    r"([A-Z][\w'’\-]+(?: [A-Z][\w'’\-]+){0,2}),\s*(\d{1,3}).{0,80}?"
+    r"(murder|assault|homicide|robbery|theft|firearm|weapon|traffick|dui|impaired|sexual|drug|driving|fail to remain)",
+    re.IGNORECASE
+)
+
 # ──────────────────────────────────────
-# 2. Start Chrome (headless & safe for cloud)
+# Start Chrome driver
 # ──────────────────────────────────────
 def start_driver():
-    chromedriver_autoinstaller.install()
-
-    opts = Options()
-    opts.headless = True
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_argument("--window-size=1920,1080")
-
-    return webdriver.Chrome(options=opts)
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1920,1080")
+    return webdriver.Chrome(options=options)
 
 # ──────────────────────────────────────
-# 3. Get recent news release links
+# Get recent article links
 # ──────────────────────────────────────
-def recent_links(driver, max_links=100):
+def get_recent_links(driver, max_links=20):
     links = []
     page = 1
     while len(links) < max_links:
-        url = f"{BASE}/media-centre/news-releases/?page={page}"
-        driver.get(url)
-        time.sleep(3)
+        driver.get(f"{BASE_URL}/media-centre/news-releases/?page={page}")
+        time.sleep(2)
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        new = []
+        new_links = []
+
         for a in soup.select('a[href^="/media-centre/news-releases/"]'):
             slug = a["href"].rstrip("/").split("/")[-1]
             if not slug.isdigit():
                 continue
-            url_full = BASE + a["href"]
-            if url_full in [l["url"] for l in links]:
+            full_url = BASE_URL + a["href"]
+            if full_url in [l["url"] for l in links]:
                 continue
-            new.append({
-                "url": url_full,
-                "title": a.get_text(strip=True) or "No title",
-                "date": a.find_next("time").get_text(strip=True) if a.find_next("time") else ""
+            new_links.append({
+                "url": full_url,
+                "title": a.get_text(strip=True) or "No title"
             })
-        if not new:
+
+        if not new_links:
             break
-        links.extend(new)
-        print(f"Page {page}: found {len(new)} links (total {len(links)})")
+        links.extend(new_links)
         page += 1
     return links[:max_links]
 
 # ──────────────────────────────────────
-# 4. Extract full article text
+# Extract full article text and date
 # ──────────────────────────────────────
-def article_text(driver, url):
+def get_article_text(driver, url):
     driver.get(url)
     time.sleep(1.5)
     soup = BeautifulSoup(driver.page_source, "html.parser")
     zone = soup.select_one("div.grid-container") or soup.find("article") or soup
-    full_text = zone.get_text(" ", strip=True)
-    pub_date_match = re.search(r"Published:\s*(.*?\d{4})", full_text)
-    pub_date = pub_date_match.group(1).strip() if pub_date_match else ""
-    return full_text, pub_date
+    text = zone.get_text(" ", strip=True)
+    date_match = re.search(r"Published:\s*(.*?\d{4})", text)
+    pub_date = date_match.group(1).strip() if date_match else ""
+    return text, pub_date
 
 # ──────────────────────────────────────
-# 5. Filter for crime-related content
+# Crime article check
 # ──────────────────────────────────────
 def is_crime_related(text):
-    return any(k in text.lower() for k in CRIME_SET)
+    return any(word in text.lower() for word in CRIME_SET)
 
 # ──────────────────────────────────────
-# 6. Suspect extraction
+# Extract suspect info
 # ──────────────────────────────────────
-SUSPECT_BLOCK = re.compile(
-    r"([A-Z][\w'’\-]+(?: [A-Z][\w'’\-]+){0,2}),\s*(\d{1,3}).{0,80}?"
-    r"(murder|assault|homicide|robbery|theft|firearm|weapon|traffick|dui|impaired|sexual|drug|dangerous driving|fail to remain)",
-    re.IGNORECASE
-)
-
 def extract_suspects(text):
-    hits = [
-        {"Name": n.strip(), "Age": a.strip(), "Crime": c.strip()}
-        for n, a, c in SUSPECT_BLOCK.findall(text)
-    ]
-    if hits:
-        return hits
+    matches = SUSPECT_PATTERN.findall(text)
+    if matches:
+        return [{"Name": n, "Age": a, "Crime": c} for n, a, c in matches]
 
-    # Fallback pattern
-    crime = re.search(r"(?:charged with|arrested for|suspected of|wanted for)\s+(.{5,80}?)\.", text, re.IGNORECASE)
-    if not crime:
-        return []
-    name = re.search(r"\b([A-Z][a-z]+(?: [A-Z][a-z]+){1,2})\b", text)
-    age = re.search(r"\b(\d{1,3})\s*(?:year|yrs)[-\s]?old\b", text, re.IGNORECASE)
-    return [{
-        "Name": name.group(1) if name else None,
-        "Age": age.group(1) if age else None,
-        "Crime": crime.group(1).strip()
-    }]
+    fallback_crime = re.search(r"(?:charged with|arrested for|suspected of|wanted for)\s+(.+?)\.", text, re.IGNORECASE)
+    if fallback_crime:
+        name = re.search(r"\b([A-Z][a-z]+(?: [A-Z][a-z]+){1,2})\b", text)
+        age = re.search(r"\b(\d{1,3})\s*(?:year|yrs)[-\s]?old\b", text, re.IGNORECASE)
+        return [{
+            "Name": name.group(1) if name else None,
+            "Age": age.group(1) if age else None,
+            "Crime": fallback_crime.group(1).strip()
+        }]
+    return []
 
 # ──────────────────────────────────────
-# 7. Main function
+# Main function
 # ──────────────────────────────────────
 def main(max_links=20):
     driver = start_driver()
     rows = []
-    seen_keys = set()
+    seen = set()
     try:
-        for link in recent_links(driver, max_links):
-            print(f"\n🔎 {link['title']}")
-            txt, pub_date = article_text(driver, link["url"])
-            if not is_crime_related(txt):
-                print("   – not crime-related, skipped")
+        for link in get_recent_links(driver, max_links):
+            print(f"\n🔍 {link['title']}")
+            text, date = get_article_text(driver, link["url"])
+            if not is_crime_related(text):
+                print("   – Skipped (not crime-related)")
                 continue
-            suspects = extract_suspects(txt)
+            suspects = extract_suspects(text)
             if not suspects:
-                print("   – crime article but no suspect pattern found")
+                print("   – Crime article but no suspects found")
                 continue
-            print(f"   – {len(suspects)} suspect(s) extracted")
+            print(f"   – Found {len(suspects)} suspect(s)")
             for s in suspects:
                 key = (s["Name"], s["Age"], link["url"])
-                if key in seen_keys:
+                if key in seen:
                     continue
-                seen_keys.add(key)
+                seen.add(key)
                 rows.append({
                     "Name": s["Name"],
                     "Age": s["Age"],
                     "Crime": s["Crime"],
                     "Article": link["url"],
-                    "Date": pub_date
+                    "Date": date
                 })
     finally:
         driver.quit()
 
-    df = pd.DataFrame(rows)
-    for col in ("date", "title", "Title"):
-        if col in df.columns:
-            df.drop(columns=[col], inplace=True)
+    if rows:
+        df = pd.DataFrame(rows)
+        output_file = "crime_data_final.xlsx"
+        df.to_excel(output_file, index=False)
 
-    excel_file = "crime_data_final.xlsx"
-    if os.path.exists(excel_file):
-        os.remove(excel_file)
+        wb = load_workbook(output_file)
+        ws = wb.active
 
-    df.to_excel(excel_file, index=False)
-    wb = load_workbook(excel_file)
-    ws = wb.active
+        for col in ws.columns:
+            max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
 
-    for col in ws.columns:
-        max_len = 0
-        col_letter = get_column_letter(col[0].column)
-        for cell in col:
-            if cell.value:
-                max_len = max(max_len, len(str(cell.value)))
-        ws.column_dimensions[col_letter].width = max_len + 2
-
-    ws.freeze_panes = "A2"
-    wb.save(excel_file)
-    print(f"\n✅ Saved {len(rows)} rows ➜ {excel_file}")
+        ws.freeze_panes = "A2"
+        wb.save(output_file)
+        print(f"\n✅ Saved {len(rows)} records to ➜ {output_file}")
+    else:
+        print("⚠️ No valid crime data extracted.")
 
 # ──────────────────────────────────────
 if __name__ == "__main__":
-    main(200)
+    main(20)
