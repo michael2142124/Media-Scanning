@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, send_file
-from scraper import main
 import os
 
 app = Flask(__name__)
