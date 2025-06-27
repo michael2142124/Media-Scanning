@@ -9,7 +9,7 @@ app = Flask(__name__)
 # ──────────────────────────────────────
 @app.route("/")
 def home():
-    return "🚓 TPS Crime Scraper is online. Visit /scrape to run it."
+    return "🚓 TPS Crime Scraper tool is online. Visit /scrape to run it. "
 
 # ──────────────────────────────────────
 # Run the scraper
