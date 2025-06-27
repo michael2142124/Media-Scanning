@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, send_file
+from tps_scraper import main
 import os
 
 app = Flask(__name__)
