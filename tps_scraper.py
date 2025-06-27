@@ -9,7 +9,7 @@ Toronto Police Service – Crime-focused news-release scraper
  • Extracts Name • Age • Crime
  • Outputs Excel: crime_data_final.xlsx
 """
-
+import shutil
 import os
 import re
 import time
@@ -22,6 +22,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+print("✅ Chrome path:", shutil.which("google-chrome"))
+print("✅ ChromeDriver path:", shutil.which("chromedriver"))
 # ──────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────
