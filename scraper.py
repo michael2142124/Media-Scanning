@@ -4,23 +4,24 @@ Toronto Police Service – Crime-focused news-release scraper
  • Headless-Chrome via Selenium (bypasses 403 / JS)
  • Scans N recent releases (default 20)
  • Filters articles that mention BOTH:
-      – any crime keyword (huge list below)
+      – any crime keyword
       – an age pattern (“22-year-old”, “22 year old”)
  • Extracts Name • Age • Crime from narrative text
  • Saves results to crime_data_final.xlsx (Excel-ready)
 """
 
+import os
+import re
+import time
+import pandas as pd
+import openpyxl
+import chromedriver_autoinstaller
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 from openpyxl.utils import get_column_letter
 from openpyxl import load_workbook
-import pandas as pd
-import openpyxl
-import os
-import re
-import time
 
 BASE = "https://www.tps.ca"
 
@@ -65,19 +66,17 @@ CRIME_KEYWORDS = [
 CRIME_SET = {kw.lower() for kw in CRIME_KEYWORDS}
 
 # ──────────────────────────────────────
-# 2. Selenium setup
+# 2. Start Chrome (headless & safe for cloud)
 # ──────────────────────────────────────
 def start_driver():
+    chromedriver_autoinstaller.install()
+
     opts = Options()
     opts.headless = True
-    opts.add_argument("--window-size=1920,1080")
-    opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
-    
-    chrome_binary = "/usr/bin/google-chrome"
-    if os.path.exists(chrome_binary):
-        opts.binary_location = chrome_binary
+    opts.add_argument("--disable-blink-features=AutomationControlled")
+    opts.add_argument("--window-size=1920,1080")
 
     return webdriver.Chrome(options=opts)
 
@@ -121,20 +120,18 @@ def article_text(driver, url):
     soup = BeautifulSoup(driver.page_source, "html.parser")
     zone = soup.select_one("div.grid-container") or soup.find("article") or soup
     full_text = zone.get_text(" ", strip=True)
-
     pub_date_match = re.search(r"Published:\s*(.*?\d{4})", full_text)
     pub_date = pub_date_match.group(1).strip() if pub_date_match else ""
     return full_text, pub_date
 
 # ──────────────────────────────────────
-# 5. Filter crime-related articles
+# 5. Filter for crime-related content
 # ──────────────────────────────────────
 def is_crime_related(text):
-    tl = text.lower()
-    return any(k in tl for k in CRIME_SET)
+    return any(k in text.lower() for k in CRIME_SET)
 
 # ──────────────────────────────────────
-# 6. Extract suspects
+# 6. Suspect extraction
 # ──────────────────────────────────────
 SUSPECT_BLOCK = re.compile(
     r"([A-Z][\w'’\-]+(?: [A-Z][\w'’\-]+){0,2}),\s*(\d{1,3}).{0,80}?"
@@ -150,10 +147,8 @@ def extract_suspects(text):
     if hits:
         return hits
 
-    crime = re.search(
-        r"(?:charged with|arrested for|suspected of|wanted for)\s+(.{5,80}?)\.",
-        text, re.IGNORECASE
-    )
+    # Fallback pattern
+    crime = re.search(r"(?:charged with|arrested for|suspected of|wanted for)\s+(.{5,80}?)\.", text, re.IGNORECASE)
     if not crime:
         return []
     name = re.search(r"\b([A-Z][a-z]+(?: [A-Z][a-z]+){1,2})\b", text)
