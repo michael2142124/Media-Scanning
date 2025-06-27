@@ -1,6 +1,6 @@
 flask
 selenium
-webdriver-manager
 pandas
 openpyxl
 beautifulsoup4
+gunicorn
