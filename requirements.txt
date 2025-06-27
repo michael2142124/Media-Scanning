@@ -1,6 +1,6 @@
 flask
 selenium
-beautifulsoup4
+chromedriver-binary
 pandas
 openpyxl
-chromedriver-autoinstaller
+beautifulsoup4
